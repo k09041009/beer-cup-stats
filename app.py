@@ -266,5 +266,10 @@ def pitcher_k(id):
         if p["id"] == id: p["K"]+=1; p["strikes"]+=1; p["pitches"]+=1; break
     return redirect(url_for('home'))
 
+import os
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    # 讓網站能自動去讀取雲端平台指定的 Port，如果在本機測試就預設用 5000
+    port = int(os.environ.get('PORT', 5000))
+    # 關鍵：host='0.0.0.0' 代表大門打開，允許雲端平台把流量導進來
+    app.run(host='0.0.0.0', port=port, debug=False)
