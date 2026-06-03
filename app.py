@@ -4,7 +4,7 @@ import os
 app = Flask(__name__)
 
 # ==============================================================================
-# 1. 數據庫結構 - 台灣爆米花聯賽六大隊伍 & 小字輩系列球員
+# 1. 擴充數據庫結構 (Data Schema) - 六大球隊、小字輩球員與即時賽況紀錄
 # ==============================================================================
 batters_db = [
     {
@@ -81,6 +81,7 @@ batters_db = [
     }
 ]
 
+# 今日賽事基本資訊
 today_match = {
     "team_A": "台灣啤酒",
     "team_B": "台北市大",
@@ -89,8 +90,17 @@ today_match = {
     "weather": "晴朗 29°C"
 }
 
+# 原先的即時文字轉播紀錄 (Live Play-by-Play Logs)
+live_logs = [
+    {"time": "九局下", "event": "🎯 台灣啤酒 換代打！由【王小明】上場頂替。面對台北市大守護神，在兩好三壞滿球數下，鎖定一顆內角直球——轟！擊出右外野方向再見兩分全壘打！比賽結束！"},
+    {"time": "八局上", "event": "🏃‍♂️ 台北市大 展開反攻！【陳小同】擊出中外野方向安打上壘，隨後靠著隊友犧牲觸擊推進至二壘。"},
+    {"time": "六局下", "event": "🔥 台灣啤酒 攻勢再起！連續發動兩次盜壘成功，攻佔二三壘，現場氣氛沸騰！"},
+    {"time": "四局下", "event": "💎 台灣啤酒 防守美技！游擊手展現流暢的接傳，精采抓到雙殺，化解失分危機。"},
+    {"time": "一局上", "event": "⚾ 台啤盃 今日重頭戲正式開打！由台灣啤酒迎戰台北市大，首球投出，主審判定為好球！"}
+]
+
 # ==============================================================================
-# 2. 核心運算邏輯
+# 2. 運算層 (Core Logic)
 # ==============================================================================
 def process_data(search_query=None):
     processed = []
@@ -123,17 +133,17 @@ def process_data(search_query=None):
     return processed
 
 # ==============================================================================
-# 3. HTML 介面與排版 (確保無多餘引號干擾)
+# 3. 展示層 (HTML 介面 - 全面台啤盃冠名化)
 # ==============================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>爆米花聯盟等級 - 轉播即時文字導播系統</title>
+    <title>台啤盃 - 轉播即時文字導播數據系統</title>
     <style>
         body { font-family: 'Microsoft JhengHei', Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
-        .header { background: linear-gradient(135deg, #0d5c3a, #063621); color: white; padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .header { background: linear-gradient(135deg, #0d5c3a, #11422c); color: white; padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         .nav-tabs { display: flex; justify-content: center; background: #fff; border-bottom: 2px solid #0d5c3a; margin-bottom: 20px; }
         .tab { padding: 15px 30px; cursor: pointer; font-weight: bold; color: #555; text-decoration: none; border-bottom: 3px solid transparent; }
         .tab:hover, .tab.active { color: #0d5c3a; border-bottom: 3px solid #0d5c3a; background: #f8f9fa; }
@@ -147,26 +157,41 @@ HTML_TEMPLATE = """
         .rank-number { font-size: 18px; font-weight: bold; color: #ff9800; }
         .flex-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
         .btn { padding: 5px 10px; background: #0d5c3a; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 12px; }
+        
+        /* 即時文字轉播專用樣式 */
+        .log-container { max-height: 300px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 8px; font-family: 'Consolas', monospace, 'Microsoft JhengHei'; }
+        .log-item { margin-bottom: 12px; line-height: 1.6; border-bottom: 1px solid #2d2d2d; padding-bottom: 8px; }
+        .log-time { color: #4fc1ff; font-weight: bold; margin-right: 10px; }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <h1>⚾ 台灣頂級業餘聯賽 - 專業轉播數據系統 ⚾</h1>
+        <h1>🏆 台啤盃全國棒球菁英賽 - 轉播即時數據系統 🏆</h1>
         <p>六大勁旅戰力整合面板（台灣啤酒、台北市大、台灣運彩、台南市、全越運動、桃園市）</p>
     </div>
 
     <div class="nav-tabs">
         <a href="/" class="tab {% if active_tab=='home' %}active{% endif %}">🏏 球員名冊與搜尋</a>
-        <a href="/leaderboard" class="tab {% if active_tab=='leader' %}active{% endif %}">🏆 數據排行榜</a>
-        <a href="/match" class="tab {% if active_tab=='match' %}active{% endif %}">📺 今日賽事整合</a>
+        <a href="/leaderboard" class="tab {% if active_tab=='leader' %}active{% endif %}">🏆 台啤盃數據榜</a>
+        <a href="/match" class="tab {% if active_tab=='match' %}active{% endif %}">📺 今日賽事與即時紀錄</a>
     </div>
 
     <div class="container">
         
         {% if active_tab == 'home' %}
+        <!-- 新增：首頁頂部置頂最新即時賽況 -->
+        <div class="card" style="border-left: 6px solid #dc3545;">
+            <h3 style="color: #dc3545; margin-top: 0;">⚡ 台啤盃戰況最前線（最新賽事紀錄）</h3>
+            <div class="log-container" style="max-height: 100px;">
+                <div class="log-item" style="border: none; margin: 0; padding: 0;">
+                    <span class="log-time">{{ logs[0].time }}</span> {{ logs[0].event }}
+                </div>
+            </div>
+        </div>
+
         <div class="card">
-            <h2>🔍 球員快速搜尋機制</h2>
+            <h2>🔍 台啤盃球員快速搜尋</h2>
             <form method="GET" action="/">
                 <input type="text" name="q" class="search-box" placeholder="搜尋球員(如:王小明)、背號(#1)、或球隊..." value="{{ query }}">
                 <button type="submit" class="btn" style="padding: 12px 20px; font-size: 16px; margin-left: 10px;">搜尋</button>
@@ -208,7 +233,7 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if active_tab == 'leader' %}
-        <h2>🏆 聯賽個人數據領先榜 (打擊三冠王)</h2>
+        <h2>🏆 台啤盃個人數據領先榜 (打擊三冠王)</h2>
         <div class="flex-grid">
             <div class="card">
                 <h3>🟢 打擊率排行榜 (AVG)</h3>
@@ -251,7 +276,7 @@ HTML_TEMPLATE = """
 
         {% if active_tab == 'match' %}
         <div class="card" style="background: linear-gradient(to right, #ffffff, #edf7ee); border-left: 6px solid #0d5c3a;">
-            <h2>📺 今日賽事轉播資訊整合面板</h2>
+            <h2>📺 台啤盃今日賽事轉播面板</h2>
             <p style="font-size: 18px;">🏟️ <strong>今日戰場：</strong> {{ match_info.stadium }} | 🕒 預計開打：{{ match_info.time }} | ☀️ 氣象狀況：{{ match_info.weather }}</p>
             <div style="display: flex; justify-content: space-around; align-items: center; margin-top: 30px;">
                 <div style="text-align: center;">
@@ -265,9 +290,22 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
+
+        <!-- 核心功能重現：原先的文字即時紀錄區塊 -->
+        <div class="card">
+            <h3>⏱️ 台啤盃即時文字轉播紀錄流 (Play-by-Play)</h3>
+            <div class="log-container">
+                {% for log in logs %}
+                <div class="log-item">
+                    <span class="log-time">[{{ log.time }}]</span>
+                    <span>{{ log.event }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
         
         <div class="card">
-            <h3>🔥 兩隊焦點球員近況變化（主播播報專用素材）</h3>
+            <h3>🔥 兩隊焦點球員近況變化（主播播報素材）</h3>
             <table>
                 <thead>
                     <tr>
@@ -312,13 +350,13 @@ HTML_TEMPLATE = """
 """
 
 # ==============================================================================
-# 4. 路由與網頁控制層
+# 4. 路由與網頁控制層 (Controller)
 # ==============================================================================
 @app.route('/')
 def home():
     query = request.args.get('q', '')
     players = process_data(search_query=query)
-    return render_template_string(HTML_TEMPLATE, active_tab='home', players=players, query=query)
+    return render_template_string(HTML_TEMPLATE, active_tab='home', players=players, query=query, logs=live_logs)
 
 @app.route('/leaderboard')
 def leaderboard():
@@ -333,7 +371,7 @@ def leaderboard():
 @app.route('/match')
 def match():
     players = process_data()
-    return render_template_string(HTML_TEMPLATE, active_tab='match', players=players, match_info=today_match)
+    return render_template_string(HTML_TEMPLATE, active_tab='match', players=players, match_info=today_match, logs=live_logs)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
