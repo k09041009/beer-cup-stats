@@ -1,336 +1,190 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, jsonify, redirect, url_for
 import os
 
 app = Flask(__name__)
 
 # ==============================================================================
-# 1. 數據庫結構 - 台啤盃六大勁旅 & 小系列球員基本初始數據
+# 1. 聯賽基礎靜態資料 (台啤盃六大勁旅 & 選手名冊範本)
 # ==============================================================================
-batters_init = [
-    {"id": 1, "number": "1", "name": "王小明", "team": "台灣啤酒", "position": "游擊手", "H": 5, "AB": 15, "BB": 2, "HBP": 1, "SAC": 1},
-    {"id": 2, "number": "7", "name": "陳小同", "team": "台北市大", "position": "中外野手", "H": 2, "AB": 10, "BB": 4, "HBP": 0, "SAC": 0},
-    {"id": 3, "number": "18", "name": "張小豪", "team": "台灣運彩", "position": "指定打擊", "H": 6, "AB": 12, "BB": 3, "HBP": 1, "SAC": 0},
-    {"id": 4, "number": "31", "name": "林小華", "team": "台南市", "position": "一壘手", "H": 3, "AB": 11, "BB": 2, "HBP": 0, "SAC": 1},
-    {"id": 5, "number": "52", "name": "黃小鋒", "team": "全越運動", "position": "左外野手", "H": 4, "AB": 14, "BB": 1, "HBP": 1, "SAC": 0},
-    {"id": 6, "number": "66", "name": "賴小宇", "team": "桃園市", "position": "捕手", "H": 2, "AB": 9, "BB": 2, "HBP": 0, "SAC": 2}
+TEAMS = ["台灣啤酒", "台北市大", "台灣運彩", "台南市", "全越運動", "桃園市"]
+
+ALL_PLAYERS = [
+    {"id": 1, "number": "1", "name": "王小明", "team": "台灣啤酒", "position": "游擊手", "type": "batter"},
+    {"id": 2, "number": "7", "name": "陳小同", "team": "台北市大", "position": "中外野手", "type": "batter"},
+    {"id": 3, "number": "18", "name": "張小豪", "team": "台灣運彩", "position": "指定打擊", "type": "batter"},
+    {"id": 4, "number": "31", "name": "林小華", "team": "台南市", "position": "一壘手", "type": "batter"},
+    {"id": 5, "number": "52", "name": "黃小鋒", "team": "全越運動", "position": "左外野手", "type": "batter"},
+    {"id": 6, "number": "66", "name": "賴小宇", "team": "桃園市", "position": "捕手", "type": "batter"},
+    {"id": 7, "number": "17", "name": "林投手", "team": "台灣啤酒", "position": "投手", "type": "pitcher"},
+    {"id": 8, "number": "99", "name": "黃終結", "team": "台北市大", "position": "投手", "type": "pitcher"},
+    {"id": 9, "number": "58", "name": "張小投", "team": "台灣運彩", "position": "投手", "type": "pitcher"},
+    {"id": 10, "number": "46", "name": "陳小投", "team": "台南市", "position": "投手", "type": "pitcher"}
 ]
 
-pitchers_init = [
-    {"id": 1, "name": "林投手", "team": "台灣啤酒", "IP_outs": 16, "balls_total": 88, "strikes": 58, "ER": 3, "K": 6}, # 16 outs = 5.1 局
-    {"id": 2, "name": "黃終結", "team": "台北市大", "IP_outs": 3, "balls_total": 15, "strikes": 11, "ER": 0, "K": 2},  # 3 outs = 1.0 局
-    {"id": 3, "name": "張小投", "team": "台灣運彩", "IP_outs": 15, "balls_total": 75, "strikes": 48, "ER": 2, "K": 4},
-    {"id": 4, "name": "陳小投", "team": "台南市", "IP_outs": 12, "balls_total": 60, "strikes": 38, "ER": 4, "K": 3}
-]
+# 歷史盃賽累積基礎數據 (在沒有打任何單場新賽事前的累積底線)
+CUMULATIVE_BASE_BATTERS = {
+    1: {"H": 12, "AB": 30, "BB": 5, "HBP": 1, "SAC": 2},
+    2: {"H": 8, "AB": 25, "BB": 3, "HBP": 0, "SAC": 1},
+    3: {"H": 15, "AB": 30, "BB": 3, "HBP": 2, "SAC": 0},
+    4: {"H": 7, "AB": 24, "BB": 2, "HBP": 1, "SAC": 1},
+    5: {"H": 10, "AB": 28, "BB": 6, "HBP": 0, "SAC": 0},
+    6: {"H": 6, "AB": 22, "BB": 2, "HBP": 1, "SAC": 2}
+}
 
-today_match = {
-    "team_A": "台灣啤酒",
-    "team_B": "台北市大",
-    "time": "18:30",
-    "stadium": "天母棒球場",
-    "weather": "晴朗 29°C"
+CUMULATIVE_BASE_PITCHERS = {
+    7: {"IP_outs": 36, "balls_total": 195, "strikes": 130, "ER": 6, "K": 18}, # 12.0局
+    8: {"IP_outs": 6, "balls_total": 30, "strikes": 21, "ER": 1, "K": 3},      # 2.0局
+    9: {"IP_outs": 30, "balls_total": 150, "strikes": 98, "ER": 5, "K": 11},   # 10.0局
+    10: {"IP_outs": 24, "balls_total": 135, "strikes": 82, "ER": 9, "K": 8}    # 8.0局
 }
 
 # ==============================================================================
-# 2. 展示層 (HTML 介面 - 完美復刻動態點擊面板，移除純文字跑馬燈)
+# 2. 記憶體賽程與單場數據庫 (動態新增與操作區)
 # ==============================================================================
-HTML_TEMPLATE = """
+matches_db = [
+    {
+        "id": 1,
+        "team_A": "台灣啤酒",
+        "team_B": "台北市大",
+        "date": "2026-06-04",
+        "time": "18:30",
+        "stadium": "天母棒球場",
+        "status": "進行中",
+        # 單場獨立數據紀錄
+        "batters": {
+            1: {"H": 2, "AB": 3, "BB": 1, "HBP": 0, "SAC": 0},
+            2: {"H": 1, "AB": 2, "BB": 1, "HBP": 0, "SAC": 0}
+        },
+        "pitchers": {
+            7: {"IP_outs": 9, "balls_total": 45, "strikes": 30, "ER": 1, "K": 4}, # 3.0局
+            8: {"IP_outs": 3, "balls_total": 15, "strikes": 11, "ER": 0, "K": 2}  # 1.0局
+        }
+    },
+    {
+        "id": 2,
+        "team_A": "台灣運彩",
+        "team_B": "台南市",
+        "date": "2026-06-12",
+        "time": "14:00",
+        "stadium": "新莊棒球場",
+        "status": "未開打",
+        "batters": {
+            3: {"H": 0, "AB": 0, "BB": 0, "HBP": 0, "SAC": 0},
+            4: {"H": 0, "AB": 0, "BB": 0, "HBP": 0, "SAC": 0}
+        },
+        "pitchers": {
+            9: {"IP_outs": 0, "balls_total": 0, "strikes": 0, "ER": 0, "K": 0},
+            10: {"IP_outs": 0, "balls_total": 0, "strikes": 0, "ER": 0, "K": 0}
+        }
+    }
+]
+
+# ==============================================================================
+# 3. 核心運算邏輯 (計算單場與盃賽累積數據)
+# ==============================================================================
+def get_cumulative_stats():
+    """整合歷史基礎數據 + 所有單場比賽數據 = 盃賽總累積數據"""
+    batters = {p["id"]: {**CUMULATIVE_BASE_BATTERS.get(p["id"], {"H":0,"AB":0,"BB":0,"HBP":0,"SAC":0})} for p in ALL_PLAYERS if p["type"] == "batter"}
+    pitchers = {p["id"]: {**CUMULATIVE_BASE_PITCHERS.get(p["id"], {"IP_outs":0,"balls_total":0,"strikes":0,"ER":0,"K":0})} for p in ALL_PLAYERS if p["type"] == "pitcher"}
+    
+    # 累加所有單場比賽數值
+    for m in matches_db:
+        for p_id, stats in m["batters"].items():
+            if p_id in batters:
+                for k in stats: batters[p_id][k] += stats[k]
+        for p_id, stats in m["pitchers"].items():
+            if p_id in pitchers:
+                for k in stats: pitchers[p_id][k] += stats[k]
+                
+    # 計算率定公式
+    processed_batters = []
+    for p in ALL_PLAYERS:
+        if p["type"] == "batter":
+            b_stat = batters[p["id"]]
+            pa = b_stat["AB"] + b_stat["BB"] + b_stat["HBP"] + b_stat["SAC"]
+            avg = b_stat["H"] / b_stat["AB"] if b_stat["AB"] > 0 else 0.0
+            obp = (b_stat["H"] + b_stat["BB"] + b_stat["HBP"]) / pa if pa > 0 else 0.0
+            processed_batters.append({
+                **p, **b_stat, "PA": pa,
+                "AVG": f"{avg:.3f}".lstrip('0') if avg < 1.0 else f"{avg:.3f}",
+                "OBP": f"{obp:.3f}".lstrip('0') if obp < 1.0 else f"{obp:.3f}"
+            })
+            
+    processed_pitchers = []
+    for p in ALL_PLAYERS:
+        if p["type"] == "pitcher":
+            p_stat = pitchers[p["id"]]
+            outs = p_stat["IP_outs"]
+            ip_str = f"{outs // 3}.{outs % 3}"
+            era = (p_stat["ER"] * 9) / (outs / 3) if outs > 0 else 0.0
+            strike_rate = (p_stat["strikes"] / p_stat["balls_total"] * 100) if p_stat["balls_total"] > 0 else 0.0
+            k9 = (p_stat["K"] * 9) / (outs / 3) if outs > 0 else 0.0
+            processed_pitchers.append({
+                **p, **p_stat, "IP": ip_str, "ERA": f"{era:.2f}",
+                "STRIKE_RATE": f"{strike_rate:.1f}%", "K9": f"{k9:.2f}"
+            })
+            
+    return processed_batters, processed_pitchers
+
+# ==============================================================================
+# 4. 全域通用網頁外殼 HTML 範本 (導入 FullCalendar 行事曆套件)
+# ==============================================================================
+BASE_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>台啤盃 - 紀錄員即時輸入數據面板</title>
+    <title>台啤盃 - 聯賽大師管理系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
     <style>
-        body { font-family: 'Microsoft JhengHei', Arial, sans-serif; margin: 0; background-color: #1a1a1a; color: #e0e0e0; }
-        .header { background: linear-gradient(135deg, #0d5c3a, #11422c); color: white; padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-        .nav-tabs { display: flex; justify-content: center; background: #222; border-bottom: 2px solid #0d5c3a; margin-bottom: 20px; }
-        .tab { padding: 15px 30px; cursor: pointer; font-weight: bold; color: #aaa; text-decoration: none; border-bottom: 3px solid transparent; }
-        .tab:hover, .tab.active { color: #2ecc71; border-bottom: 3px solid #2ecc71; background: #2d2d2d; }
-        .container { max-width: 1300px; margin: 0 auto; padding: 20px; }
-        .card { background: #262626; border-radius: 10px; padding: 25px; box-shadow: 0 6px 12px rgba(0,0,0,0.2); margin-bottom: 25px; }
-        .search-box { width: 100%; max-width: 500px; padding: 12px; font-size: 16px; background: #333; color: #fff; border: 1px solid #444; border-radius: 6px; margin-bottom: 20px; }
+        body { font-family: 'Microsoft JhengHei', Arial, sans-serif; margin: 0; background-color: #121212; color: #e0e0e0; }
+        .header { background: linear-gradient(135deg, #0d5c3a, #164e33); color: white; padding: 20px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .nav-tabs { display: flex; justify-content: center; background: #1e1e1e; border-bottom: 3px solid #1b7339; }
+        .tab { padding: 15px 35px; cursor: pointer; font-weight: bold; color: #bbb; text-decoration: none; border-bottom: 4px solid transparent; transition: 0.2s; }
+        .tab:hover, .tab.active { color: #2ecc71; border-bottom: 4px solid #2ecc71; background: #252525; }
+        .container { max-width: 1300px; margin: 0 auto; padding: 25px; }
+        .card { background: #1e1e1e; border-radius: 12px; padding: 25px; box-shadow: 0 6px 16px rgba(0,0,0,0.4); margin-bottom: 30px; border: 1px solid #2d2d2d; }
         
-        /* 復刻截圖的綠色表格標題與黑底風格 */
-        .module-title { font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 15px; color: #ffffff; display: flex; align-items: center; justify-content: center; gap: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; background-color: #1e1e1e; }
-        th { background-color: #1b7339; color: white; padding: 12px 8px; font-size: 14px; font-weight: normal; }
-        td { padding: 14px 8px; text-align: center; border-bottom: 1px solid #333; font-size: 15px; color: #fff; }
-        tr:hover { background-color: #282828; }
+        /* 表格專用樣式 (完美復刻黑綠配色輸入面板) */
+        .module-title { font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 15px; color: #fff; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background-color: #151515; }
+        th { background-color: #1b7339; color: white; padding: 12px; font-size: 14px; font-weight: bold; text-align: center; }
+        td { padding: 14px; text-align: center; border-bottom: 1px solid #2a2a2a; font-size: 15px; color: #fff; }
+        tr:hover { background-color: #222; }
         
-        /* 即時紀錄輸入按鈕樣式 */
-        .btn-group { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
-        .btn-input { padding: 5px 10px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; transition: transform 0.1s; }
-        .btn-input:active { transform: scale(0.9); }
+        /* 表單按鈕與輸入框 */
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
+        .form-control { width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        .btn { padding: 12px 24px; background: #1b7339; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #228b4c; }
         
-        /* 打者按鈕顏色 */
-        .b-h { background-color: #1b7339; }    /* 安打綠 */
-        .b-out { background-color: #d93025; }  /* 出局紅 */
-        .b-bb { background-color: #1a73e8; }   /* 保送藍 */
-        .b-hbp { background-color: #00bcd4; }  /* 觸身青 */
-        .b-sac { background-color: #f1a80a; }  /* 犧牲橘 */
+        /* 即時按鈕樣式 */
+        .btn-group { display: flex; gap: 6px; justify-content: center; }
+        .btn-input { padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
+        .b-h { background-color: #1b7339; } .b-out { background-color: #d93025; } .b-bb { background-color: #1a73e8; } .b-hbp { background-color: #00bcd4; } .b-sac { background-color: #f1a80a; }
         
-        /* 投手按鈕顏色 */
-        .p-strike { background-color: #1b7339; }
-        .p-ball { background-color: #1a73e8; }
-        .p-out { background-color: #d93025; }
-        .p-er { background-color: #f1a80a; }
-        .p-k { background-color: #009688; }
-        
-        .btn-search { padding: 12px 20px; font-size: 16px; background: #1b7339; color: white; border: none; border-radius: 6px; margin-left: 10px; cursor: pointer; }
+        /* 行事曆自訂樣式調整 */
+        #calendar { background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff; border: 1px solid #333; }
+        .fc-theme-standard td, .fc-theme-standard th { border: 1px solid #333 !important; }
+        .fc-daygrid-day:hover { background-color: #252525; cursor: pointer; }
+        .fc-event { background-color: #1b7339 !important; border: 1px solid #2ecc71 !important; color: white !important; padding: 3px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <h1>🏆 台啤盃全國棒球菁英賽 - 轉播即時數據系統 🏆</h1>
-        <p>六大勁旅官方即時整合面板（台灣啤酒、台北市大、台灣運彩、台南市、全越運動、桃園市）</p>
+        <h1>🏆 台啤盃棒球聯賽 - 雲端大師整合系統 🏆</h1>
+        <p>即時賽程排定、單場即時點擊紀錄房、盃賽數據自動大會串</p>
     </div>
 
     <div class="nav-tabs">
-        <a href="/" class="tab {% if active_tab=='home' %}active{% endif %}">🏏 紀錄員即時輸入面板</a>
-        <a href="/match" class="tab {% if active_tab=='match' %}active{% endif %}">📺 今日賽事整合</a>
+        <a href="/" class="tab {% if active_tab=='calendar' %}active{% endif %}">🗓️ 台啤盃賽程行事曆</a>
+        <a href="/cumulative" class="tab {% if active_tab=='cumulative' %}active{% endif %}">🏆 盃賽累積數據榜</a>
     </div>
 
     <div class="container">
-        
-        {% if active_tab == 'home' %}
-        <!-- 搜尋功能 -->
-        <div class="card">
-            <h2>🔍 台啤盃球員快速篩選</h2>
-            <form method="GET" action="/">
-                <input type="text" name="q" class="search-box" placeholder="搜尋球員姓名、球隊..." value="{{ query }}">
-                <button type="submit" class="btn-search">篩選</button>
-                {% if query %}<a href="/" style="margin-left:10px; color:#aaa; text-decoration:none;">[清除條件]</a>{% endif %}
-            </form>
-        </div>
-
-        <!-- 打者數據榜 (Batting Module) -->
-        <div class="card">
-            <div class="module-title">🏏 打者數據榜 (Batting Module)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 8%;">球員</th>
-                        <th style="width: 10%;">球隊</th>
-                        <th>打席(PA)</th>
-                        <th>打數(AB)</th>
-                        <th>安打(H)</th>
-                        <th>四壞(BB)</th>
-                        <th>觸身(HBP)</th>
-                        <th>犧牲(SAC)</th>
-                        <th>打擊率(AVG)</th>
-                        <th>上壘率(OBP)</th>
-                        <th style="width: 32%;">紀錄員即時輸入面板</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for p in b_players %}
-                    <tr id="batter-row-{{ p.id }}">
-                        <td style="font-weight: bold; color: #fff;">{{ p.name }}</td>
-                        <td style="color: #aaa;">{{ p.team }}</td>
-                        <td id="b-pa-{{ p.id }}">0</td>
-                        <td id="b-ab-{{ p.id }}">{{ p.AB }}</td>
-                        <td id="b-h-{{ p.id }}">{{ p.H }}</td>
-                        <td id="b-bb-{{ p.id }}">{{ p.BB }}</td>
-                        <td id="b-hbp-{{ p.id }}">{{ p.HBP }}</td>
-                        <td id="b-sac-{{ p.id }}">{{ p.SAC }}</td>
-                        <td id="b-avg-{{ p.id }}" style="color: #2ecc71; font-weight: bold;">.000</td>
-                        <td id="b-obp-{{ p.id }}" style="color: #3498db; font-weight: bold;">.000</td>
-                        <td>
-                            <div class="btn-group">
-                                <button class="btn-input b-h" onclick="updateBatter({{ p.id }}, 'H')">H (安打)</button>
-                                <button class="btn-input b-out" onclick="updateBatter({{ p.id }}, 'OUT')">OUT (出局)</button>
-                                <button class="btn-input b-bb" onclick="updateBatter({{ p.id }}, 'BB')">BB (保送)</button>
-                                <button class="btn-input b-hbp" onclick="updateBatter({{ p.id }}, 'HBP')">HBP (觸身)</button>
-                                <button class="btn-input b-sac" onclick="updateBatter({{ p.id }}, 'SAC')">SAC (犧牲)</button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- 投手數據榜 (Pitching Module) -->
-        <div class="card">
-            <div class="module-title">⚾ 投手數據榜 (Pitching Module)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 8%;">球員</th>
-                        <th style="width: 10%;">球隊</th>
-                        <th>局數(IP)</th>
-                        <th>總球數</th>
-                        <th>好球數</th>
-                        <th>自責分(ER)</th>
-                        <th>奪三振(K)</th>
-                        <th>防禦率(ERA)</th>
-                        <th>好球率</th>
-                        <th>K/9 值</th>
-                        <th style="width: 32%;">紀錄員即時輸入面板</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for p in p_players %}
-                    <tr id="pitcher-row-{{ p.id }}">
-                        <td style="font-weight: bold; color: #fff;">{{ p.name }}</td>
-                        <td style="color: #aaa;">{{ p.team }}</td>
-                        <td id="p-ip-{{ p.id }}">0.0</td>
-                        <td id="p-total-{{ p.id }}">{{ p.balls_total }}</td>
-                        <td id="p-strikes-{{ p.id }}">{{ p.strikes }}</td>
-                        <td id="p-er-{{ p.id }}">{{ p.ER }}</td>
-                        <td id="p-k-{{ p.id }}">{{ p.K }}</td>
-                        <td id="p-era-{{ p.id }}" style="color: #2ecc71; font-weight: bold;">0.00</td>
-                        <td id="p-rate-{{ p.id }}">0.0%</td>
-                        <td id="p-k9-{{ p.id }}">0.00</td>
-                        <td>
-                            <div class="btn-group">
-                                <button class="btn-input p-strike" onclick="updatePitcher({{ p.id }}, 'STRIKE')">好球 (Strike)</button>
-                                <button class="btn-input p-ball" onclick="updatePitcher({{ p.id }}, 'BALL')">壞球 (Ball)</button>
-                                <button class="btn-input p-out" onclick="updatePitcher({{ p.id }}, 'OUT')">抓到出局 (Out)</button>
-                                <button class="btn-input p-er" onclick="updatePitcher({{ p.id }}, 'ER')">失自責分 (ER)</button>
-                                <button class="btn-input p-k" onclick="updatePitcher({{ p.id }}, 'K')">奪三振 (K)</button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- 互動連動核心運算 JavaScript -->
-        <script>
-            // 初始打者結構轉移至JS
-            const batters = {
-                {% for p in b_players %}
-                "{{ p.id }}": { h: {{ p.H }}, ab: {{ p.AB }}, bb: {{ p.BB }}, hbp: {{ p.HBP }}, sac: {{ p.SAC }} },
-                {% endfor %}
-            };
-
-            // 初始投手結構轉移至JS
-            const pitchers = {
-                {% for p in p_players %}
-                "{{ p.id }}": { outs: {{ p.IP_outs }}, total: {{ p.balls_total }}, strikes: {{ p.strikes }}, er: {{ p.ER }}, k: {{ p.K }} },
-                {% endfor %}
-            };
-
-            // 重新計算打者所有連動公式
-            function calcBatter(id) {
-                let b = batters[id];
-                let pa = b.ab + b.bb + b.hbp + b.sac;
-                let avg = b.ab > 0 ? (b.h / b.ab) : 0;
-                let obp = pa > 0 ? ((b.h + b.bb + b.hbp) / pa) : 0;
-
-                document.getElementById(`b-pa-${id}`).innerText = pa;
-                document.getElementById(`b-ab-${id}`).innerText = b.ab;
-                document.getElementById(`b-h-${id}`).innerText = b.h;
-                document.getElementById(`b-bb-${id}`).innerText = b.bb;
-                document.getElementById(`b-hbp-${id}`).innerText = b.hbp;
-                document.getElementById(`b-sac-${id}`).innerText = b.sac;
-                
-                document.getElementById(`b-avg-${id}`).innerText = avg === 1 ? "1.000" : avg.toFixed(3).substring(1);
-                document.getElementById(`b-obp-${id}`).innerText = obp === 1 ? "1.000" : obp.toFixed(3).substring(1);
-            }
-
-            // 重新計算投手所有連動公式
-            function calcPitcher(id) {
-                let p = pitchers[id];
-                
-                // 算出局數顯示 (例如 16個出局數 = 5局又1個出局數 = 5.1)
-                let fullInnings = Math.floor(p.outs / 3);
-                let remainingOuts = p.outs % 3;
-                let ipStr = `${fullInnings}.${remainingOuts}`;
-                
-                // ERA 公式 = (ER * 9) / (outs / 3)
-                let inningsCount = p.outs / 3;
-                let era = inningsCount > 0 ? ((p.er * 9) / inningsCount) : 0;
-                
-                // 好球率
-                let strikeRate = p.total > 0 ? ((p.strikes / p.total) * 100) : 0;
-                
-                // K/9 值 = (K * 9) / (outs / 3)
-                let k9 = inningsCount > 0 ? ((p.k * 9) / inningsCount) : 0;
-
-                document.getElementById(`p-ip-${id}`).innerText = ipStr;
-                document.getElementById(`p-total-${id}`).innerText = p.total;
-                document.getElementById(`p-strikes-${id}`).innerText = p.strikes;
-                document.getElementById(`p-er-${id}`).innerText = p.er;
-                document.getElementById(`p-k-${id}`).innerText = p.k;
-                
-                document.getElementById(`p-era-${id}`).innerText = era.toFixed(2);
-                document.getElementById(`p-rate-${id}`).innerText = strikeRate.toFixed(1) + "%";
-                document.getElementById(`p-k9-${id}`).innerText = k9.toFixed(2);
-            }
-
-            // 打者點擊動作觸發
-            function updateBatter(id, type) {
-                if (type === 'H') {
-                    batters[id].h += 1;
-                    batters[id].ab += 1;
-                } else if (type === 'OUT') {
-                    batters[id].ab += 1;
-                } else if (type === 'BB') {
-                    batters[id].bb += 1;
-                } else if (type === 'HBP') {
-                    batters[id].hbp += 1;
-                } else if (type === 'SAC') {
-                    batters[id].sac += 1;
-                }
-                calcBatter(id);
-            }
-
-            // 投手點擊動作觸發
-            function updatePitcher(id, type) {
-                if (type === 'STRIKE') {
-                    pitchers[id].strikes += 1;
-                    pitchers[id].total += 1;
-                } else if (type === 'BALL') {
-                    pitchers[id].total += 1;
-                } else if (type === 'OUT') {
-                    pitchers[id].outs += 1;
-                    pitchers[id].strikes += 1; // 抓到出局通常伴隨好球球數增加
-                    pitchers[id].total += 1;
-                } else if (type === 'ER') {
-                    pitchers[id].er += 1;
-                } else if (type === 'K') {
-                    pitchers[id].k += 1;
-                    pitchers[id].outs += 1; // 三振直接拿到一個出局數
-                    pitchers[id].strikes += 1;
-                    pitchers[id].total += 1;
-                }
-                calcPitcher(id);
-            }
-
-            // 頁面加載完成後自動初始化所有球員數值
-            window.onload = function() {
-                Object.keys(batters).forEach(id => calcBatter(id));
-                Object.keys(pitchers).forEach(id => calcPitcher(id));
-            };
-        </script>
-        {% endif %}
-
-        {% if active_tab == 'match' %}
-        <div class="card" style="background: #222; border-left: 6px solid #1b7339;">
-            <h2>📺 台啤盃今日賽事轉播面板</h2>
-            <p style="font-size: 18px;">🏟️ <strong>今日戰場：</strong> {{ match_info.stadium }} | 🕒 預計開打：{{ match_info.time }} | ☀️ 氣象狀況：{{ match_info.weather }}</p>
-            <div style="display: flex; justify-content: space-around; align-items: center; margin-top: 30px;">
-                <div style="text-align: center;">
-                    <h3 style="font-size: 28px; color: #2ecc71; margin:0;">{{ match_info.team_A }}</h3>
-                    <p style="color:#888;">(主場一壘側)</p>
-                </div>
-                <div style="font-size: 24px; font-weight: bold; color: #555;">VS</div>
-                <div style="text-align: center;">
-                    <h3 style="font-size: 28px; color: #f1a80a; margin:0;">{{ match_info.team_B }}</h3>
-                    <p style="color:#888;">(客場三壘側)</p>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3>🔥 今日對戰焦點隊伍陣容 (台灣啤酒 & 台北市大)</h3>
-            <p style="color: #aaa; font-size: 14px;">提示：請至「紀錄員即時輸入面板」點選按鈕，進行即時戰況連動調度。</p>
-        </div>
-        {% endif %}
-
+        {% block content %}{% endblock %}
     </div>
 
 </body>
@@ -338,25 +192,373 @@ HTML_TEMPLATE = """
 """
 
 # ==============================================================================
-# 3. 路由控制層 (過濾搜尋結果)
+# 5. 路由控制層 (Controllers)
 # ==============================================================================
-@app.route('/')
-def home():
-    query = request.args.get('q', '')
-    
-    # 依搜尋條件過濾打者與投手
-    if query:
-        b_filtered = [b for b in batters_init if query.lower() in b["name"].lower() or query.lower() in b["team"].lower()]
-        p_filtered = [p for p in pitchers_init if query.lower() in p["name"].lower() or query.lower() in p["team"].lower()]
-    else:
-        b_filtered = batters_init
-        p_filtered = pitchers_init
-        
-    return render_template_string(HTML_TEMPLATE, active_tab='home', b_players=b_filtered, p_players=p_filtered, query=query)
 
-@app.route('/match')
-def match():
-    return render_template_string(HTML_TEMPLATE, active_tab='match', match_info=today_match)
+# --- [路由 1]：首頁賽程行事曆檢視與新增
+@app.route('/')
+def index():
+    calendar_content = """
+    {% extends "base" %}
+    {% block content %}
+    <div class="card">
+        <h3>➕ 新增台啤盃常規賽程資訊</h3>
+        <form method="POST" action="/add-match">
+            <div class="form-grid">
+                <div>
+                    <label style="font-size:14px; color:#aaa;">主場球隊 (一壘側)</label>
+                    <select name="team_A" class="form-control" required>
+                        {% for team in teams %} <option value="{{ team }}">{{ team }}</option> {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:14px; color:#aaa;">客場球隊 (三壘側)</label>
+                    <select name="team_B" class="form-control" required>
+                        {% for team in teams %} <option value="{{ team }}">{{ team }}</option> {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:14px; color:#aaa;">比賽日期</label>
+                    <input type="date" name="date" class="form-control" required>
+                </div>
+                <div>
+                    <label style="font-size:14px; color:#aaa;">開打時間</label>
+                    <input type="time" name="time" class="form-control" required>
+                </div>
+                <div>
+                    <label style="font-size:14px; color:#aaa;">比賽球場</label>
+                    <input type="text" name="stadium" class="form-control" placeholder="例如：天母棒球場" required>
+                </div>
+            </div>
+            <button type="submit" class="btn">確認排定並整合至行事曆</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0; color:#2ecc71;">🗓️ 台啤盃大會官方時程行事曆 (點擊任一場賽事直接切入單場即時紀錄房)</h3>
+        <p style="color:#aaa; font-size:14px; margin-bottom:20px;">💡 指引：下方行事曆會同步彙整所有排定的對戰。直接點選行事曆內的比賽區塊，即可進入動態點擊面板！</p>
+        <div id="calendar"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var calendarEl = document.getElementById('calendar');
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'zh-tw',
+                editable: false,
+                events: [
+                    {% for m in matches %}
+                    {
+                        id: '{{ m.id }}',
+                        title: '{{ m.team_A }} VS {{ m.team_B }} ({{ m.stadium }})',
+                        start: '{{ m.date }}T{{ m.time }}',
+                        url: '/match/{{ m.id }}' // 點擊直接路由到該場次的即時紀錄房
+                    },
+                    {% endfor %}
+                ]
+            });
+            calendar.render();
+        });
+    </script>
+    {% endblock %}
+    """
+    return render_template_string(BASE_TEMPLATE + calendar_content, active_tab='calendar', teams=TEAMS, matches=matches_db)
+
+
+# --- [動作路由]：接收表單資料，動態新增賽程
+@app.route('/add-match', methods=['POST'])
+def add_match():
+    team_a = request.form.get('team_A')
+    team_b = request.form.get('team_B')
+    date = request.form.get('date')
+    time = request.form.get('time')
+    stadium = request.form.get('stadium')
+    
+    new_id = len(matches_db) + 1
+    
+    # 建立新賽事，並自動抓取屬於這兩隊的球員初始化單場 Box Score 欄位
+    match_batters = {}
+    match_pitchers = {}
+    for p in ALL_PLAYERS:
+        if p["team"] in [team_a, team_b]:
+            if p["type"] == "batter":
+                match_batters[p["id"]] = {"H": 0, "AB": 0, "BB": 0, "HBP": 0, "SAC": 0}
+            elif p["type"] == "pitcher":
+                match_pitchers[p["id"]] = {"IP_outs": 0, "balls_total": 0, "strikes": 0, "ER": 0, "K": 0}
+                
+    matches_db.append({
+        "id": new_id, "team_A": team_a, "team_B": team_b,
+        "date": date, "time": time, "stadium": stadium, "status": "未開打",
+        "batters": match_batters, "pitchers": match_pitchers
+    })
+    return redirect(url_for('index'))
+
+
+# --- [路由 2]：盃賽累積數據榜檢視
+@app.route('/cumulative')
+def cumulative():
+    c_batters, c_pitchers = get_cumulative_stats()
+    cumulative_content = """
+    {% extends "base" %}
+    {% block content %}
+    <div class="card">
+        <div class="module-title">🏆 盃賽生涯大會累積榜 - 打者數據 (Batting Module)</div>
+        <p style="color:#aaa; font-size:13px; text-align:center;">（數據流已完美整合：歷史底線數據 + 所有單場動態點擊數值的即時加總）</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>球員</th><th>背號</th><th>球隊</th><th>守備位置</th>
+                    <th>打席(PA)</th><th>打數(AB)</th><th>安打(H)</th><th>四壞(BB)</th><th>觸身(HBP)</th><th>犧牲(SAC)</th>
+                    <th style="color:#2ecc71;">打擊率(AVG)</th><th style="color:#3498db;">上壘率(OBP)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in batters %}
+                <tr>
+                    <td><strong>{{ p.name }}</strong></td><td>#{{ p.number }}</td><td>{{ p.team }}</td><td>{{ p.position }}</td>
+                    <td>{{ p.PA }}</td><td>{{ p.AB }}</td><td>{{ p.H }}</td><td>{{ p.BB }}</td><td>{{ p.HBP }}</td><td>{{ p.SAC }}</td>
+                    <td style="color:#2ecc71; font-weight:bold;">{{ p.AVG }}</td><td style="color:#3498db; font-weight:bold;">{{ p.OBP }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="module-title">🏆 盃賽生涯大會累積榜 - 投手數據 (Pitching Module)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>球員</th><th>背號</th><th>球隊</th><th>局數(IP)</th><th>總球數</th><th>好球數</th><th>自責分(ER)</th><th>奪三振(K)</th>
+                    <th style="color:#2ecc71;">防禦率(ERA)</th><th>好球率</th><th>K/9 值</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pitchers %}
+                <tr>
+                    <td><strong>{{ p.name }}</strong></td><td>#{{ p.number }}</td><td>{{ p.team }}</td>
+                    <td>{{ p.IP }}</td><td>{{ p.balls_total }}</td><td>{{ p.strikes }}</td><td>{{ p.ER }}</td><td>{{ p.K }}</td>
+                    <td style="color:#2ecc71; font-weight:bold;">{{ p.ERA }}</td><td>{{ p.STRIKE_RATE }}</td><td>{{ p.K9 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endblock %}
+    """
+    return render_template_string(BASE_TEMPLATE + cumulative_content, active_tab='cumulative', batters=c_batters, pitchers=c_pitchers)
+
+
+# --- [路由 3]：單場即時紀錄房 (由行事曆點入對應 ID)
+@app.route('/match/<int:match_id>')
+def match_room(match_id):
+    # 抓取特定賽事
+    match = next((m for m in matches_db if m["id"] == match_id), None)
+    if not match:
+        return "賽事不存在", 404
+        
+    # 過濾出參與此場比賽的兩隊選手名單，傳遞給前端動態生成點擊行
+    m_batters = []
+    m_pitchers = []
+    for p in ALL_PLAYERS:
+        if p["team"] in [match["team_A"], match["team_B"]]:
+            if p["type"] == "batter":
+                # 確保結構體存在
+                if p["id"] not in match["batters"]:
+                    match["batters"][p["id"]] = {"H":0,"AB":0,"BB":0,"HBP":0,"SAC":0}
+                m_batters.append({**p, **match["batters"][p["id"]]})
+            elif p["type"] == "pitcher":
+                if p["id"] not in match["pitchers"]:
+                    match["pitchers"][p["id"]] = {"IP_outs":0,"balls_total":0,"strikes":0,"ER":0,"K":0}
+                m_pitchers.append({**p, **match["pitchers"][p["id"]]})
+
+    match_template = """
+    {% extends "base" %}
+    {% block content %}
+    <div class="card" style="background: linear-gradient(to right, #151515, #1b3827); border-left: 6px solid #2ecc71;">
+        <span style="background:#d93025; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">單場 LIVE 紀錄房</span>
+        <h2 style="margin: 10px 0 5px 0;">🏟️ 戰場：{{ match.stadium }} ({{ match.date }} {{ match.time }})</h2>
+        <div style="display:flex; gap:30px; font-size:24px; font-weight:bold; margin-top:15px; align-items:center;">
+            <div style="color:#2ecc71;">{{ match.team_A }} (主)</div>
+            <div style="color:#555;">VS</div>
+            <div style="color:#f1a80a;">{{ match.team_B }} (客)</div>
+        </div>
+        <a href="/" style="display:inline-block; margin-top:20px; color:#aaa; text-decoration:none;">⬅️ 回到排定行事曆</a>
+    </div>
+
+    <div class="card">
+        <div class="module-title">🏏 【本場專屬】打者即時輸入面板 (Batting Box Score)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>球員</th><th>球隊</th><th>守備位置</th><th>打席(PA)</th><th>打數(AB)</th><th>安打(H)</th><th>四壞(BB)</th><th>觸身(HBP)</th><th>犧牲(SAC)</th><th>單場AVG</th>
+                    <th style="width:30%;">紀錄員即時輸入動作條</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in batters %}
+                <tr id="b-row-{{ p.id }}">
+                    <td><strong>{{ p.name }}</strong></td><td>{{ p.team }}</td><td><span style="background:#2d2d2d; padding:2px 6px; border-radius:4px;">{{ p.position }}</span></td>
+                    <td id="b-pa-{{ p.id }}">0</td><td id="b-ab-{{ p.id }}">{{ p.AB }}</td><td id="b-h-{{ p.id }}">{{ p.H }}</td><td id="b-bb-{{ p.id }}">{{ p.BB }}</td><td id="b-hbp-{{ p.id }}">{{ p.HBP }}</td><td id="b-sac-{{ p.id }}">{{ p.SAC }}</td>
+                    <td id="b-avg-{{ p.id }}" style="color:#2ecc71; font-weight:bold;">.000</td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn-input b-h" onclick="sendAction({{ match.id }}, 'batter', {{ p.id }}, 'H')">H</button>
+                            <button class="btn-input b-out" onclick="sendAction({{ match.id }}, 'batter', {{ p.id }}, 'OUT')">OUT</button>
+                            <button class="btn-input b-bb" onclick="sendAction({{ match.id }}, 'batter', {{ p.id }}, 'BB')">BB</button>
+                            <button class="btn-input b-hbp" onclick="sendAction({{ match.id }}, 'batter', {{ p.id }}, 'HBP')">HBP</button>
+                            <button class="btn-input b-sac" onclick="sendAction({{ match.id }}, 'batter', {{ p.id }}, 'SAC')">SAC</button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="module-title">⚾ 【本場專屬】投手即時輸入面板 (Pitching Box Score)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>球員</th><th>球隊</th><th>局數(IP)</th><th>總球數</th><th>好球數</th><th>自責分(ER)</th><th>奪三振(K)</th><th>單場ERA</th><th>好球率</th>
+                    <th style="width:30%;">紀錄員即時輸入動作條</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pitchers %}
+                <tr id="p-row-{{ p.id }}">
+                    <td><strong>{{ p.name }}</strong></td><td>{{ p.team }}</td>
+                    <td id="p-ip-{{ p.id }}">0.0</td><td id="p-total-{{ p.id }}">{{ p.balls_total }}</td><td id="p-strikes-{{ p.id }}">{{ p.strikes }}</td><td id="p-er-{{ p.id }}">{{ p.ER }}</td><td id="p-k-{{ p.id }}">{{ p.K }}</td>
+                    <td id="p-era-{{ p.id }}" style="color:#2ecc71; font-weight:bold;">0.00</td><td id="p-rate-{{ p.id }}">0%</td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn-input b-h" style="background:#1b7339;" onclick="sendAction({{ match.id }}, 'pitcher', {{ p.id }}, 'STRIKE')">好球</button>
+                            <button class="btn-input b-bb" style="background:#1a73e8;" onclick="sendAction({{ match.id }}, 'pitcher', {{ p.id }}, 'BALL')">壞球</button>
+                            <button class="btn-input b-out" style="background:#d93025;" onclick="sendAction({{ match.id }}, 'pitcher', {{ p.id }}, 'OUT')">出局</button>
+                            <button class="btn-input b-sac" style="background:#f1a80a;" onclick="sendAction({{ match.id }}, 'pitcher', {{ p.id }}, 'ER')">失分</button>
+                            <button class="btn-input b-hbp" style="background:#009688;" onclick="sendAction({{ match.id }}, 'pitcher', {{ p.id }}, 'K')">三振</button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 後端資料即時在前端同步
+        const batters = { {% for p in batters %} "{{ p.id }}": { h: {{ p.H }}, ab: {{ p.AB }}, bb: {{ p.BB }}, hbp: {{ p.HBP }}, sac: {{ p.SAC }} }, {% endfor %} };
+        const pitchers = { {% for p in pitchers %} "{{ p.id }}": { outs: {{ p.IP_outs }}, total: {{ p.balls_total }}, strikes: {{ p.strikes }}, er: {{ p.ER }}, k: {{ p.K }} }, {% endfor %} };
+
+        function runCalcBatter(id) {
+            let b = batters[id];
+            let pa = b.ab + b.bb + b.hbp + b.sac;
+            let avg = b.ab > 0 ? (b.h / b.ab) : 0;
+            document.getElementById(`b-pa-${id}`).innerText = pa;
+            document.getElementById(`b-ab-${id}`).innerText = b.ab;
+            document.getElementById(`b-h-${id}`).innerText = b.h;
+            document.getElementById(`b-bb-${id}`).innerText = b.bb;
+            document.getElementById(`b-hbp-${id}`).innerText = b.hbp;
+            document.getElementById(`b-sac-${id}`).innerText = b.sac;
+            document.getElementById(`b-avg-${id}`).innerText = avg === 1 ? "1.000" : avg.toFixed(3).substring(1);
+        }
+
+        function runCalcPitcher(id) {
+            let p = pitchers[id];
+            let ipStr = `${Math.floor(p.outs / 3)}.${p.outs % 3}`;
+            let era = p.outs > 0 ? ((p.er * 9) / (p.outs / 3)) : 0;
+            let rate = p.total > 0 ? ((p.strikes / p.total) * 100) : 0;
+            document.getElementById(`p-ip-${id}`).innerText = ipStr;
+            document.getElementById(`p-total-${id}`).innerText = p.total;
+            document.getElementById(`p-strikes-${id}`).innerText = p.strikes;
+            document.getElementById(`p-er-${id}`).innerText = p.er;
+            document.getElementById(`p-k-${id}`).innerText = p.k;
+            document.getElementById(`p-era-${id}`).innerText = era.toFixed(2);
+            document.getElementById(`p-rate-${id}`).innerText = rate.toFixed(1) + "%";
+        }
+
+        // 使用非同步 AJAX 向後端傳遞紀錄變更，保證重新整理網頁時單場紀錄依舊留存
+        function sendAction(matchId, pType, pId, action) {
+            fetch(`/api/update-record`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ match_id: matchId, player_type: pType, player_id: pId, action_type: action })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    if (pType === 'batter') {
+                        batters[pId] = data.new_data;
+                        runCalcBatter(pId);
+                    } else {
+                        pitchers[pId] = data.new_data;
+                        runCalcPitcher(pId);
+                    }
+                }
+            });
+        }
+
+        window.onload = function() {
+            Object.keys(batters).forEach(id => runCalcBatter(id));
+            Object.keys(pitchers).forEach(id => runCalcPitcher(id));
+        };
+    </script>
+    {% endblock %}
+    """
+    return render_template_string(BASE_TEMPLATE + match_template, active_tab='calendar', match=match, batters=m_batters, pitchers=m_pitchers)
+
+
+# --- [API 路由]：非同步處理前端點擊事件並同步回後端記憶體數據庫
+@app.route('/api/update-record', methods=['POST'])
+def api_update_record():
+    data = request.json
+    m_id = data.get("match_id")
+    p_type = data.get("player_type")
+    p_id = int(data.get("player_id"))
+    action = data.get("action_type")
+    
+    match = next((m for m in matches_db if m["id"] == m_id), None)
+    if not match:
+        return jsonify({"success": False, "msg": "Match not found"})
+        
+    if p_type == "batter":
+        p_stat = match["batters"].setdefault(p_id, {"H": 0, "AB": 0, "BB": 0, "HBP": 0, "SAC": 0})
+        if action == "H":
+            p_stat["H"] += 1
+            p_stat["AB"] += 1
+        elif action == "OUT":
+            p_stat["AB"] += 1
+        elif action == "BB":
+            p_stat["BB"] += 1
+        elif action == "HBP":
+            p_stat["HBP"] += 1
+        elif action == "SAC":
+            p_stat["SAC"] += 1
+        return jsonify({"success": True, "new_data": p_stat})
+        
+    elif p_type == "pitcher":
+        p_stat = match["pitchers"].setdefault(p_id, {"IP_outs": 0, "balls_total": 0, "strikes": 0, "ER": 0, "K": 0})
+        if action == "STRIKE":
+            p_stat["strikes"] += 1
+            p_stat["balls_total"] += 1
+        elif action == "BALL":
+            p_stat["balls_total"] += 1
+        elif action == "OUT":
+            p_stat["IP_outs"] += 1
+            p_stat["strikes"] += 1
+            p_stat["balls_total"] += 1
+        elif action == "ER":
+            p_stat["ER"] += 1
+        elif action == "K":
+            p_stat["K"] += 1
+            p_stat["IP_outs"] += 1
+            p_stat["strikes"] += 1
+            p_stat["balls_total"] += 1
+        return jsonify({"success": True, "new_data": p_stat})
+
+    return jsonify({"success": False})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
