@@ -127,7 +127,7 @@ def get_cumulative_stats():
     return processed_batters, processed_pitchers
 
 # ==============================================================================
-# 4. 全域通用網頁外殼 HTML 範本 (導入 FullCalendar 行事曆套件)
+# 4. 全域通用網頁外殼 HTML 範本
 # ==============================================================================
 BASE_TEMPLATE = """
 <!DOCTYPE html>
@@ -135,6 +135,7 @@ BASE_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <title>台啤盃 - 聯賽大師管理系統</title>
+    <!-- FullCalendar 相關 CDN -->
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
     <style>
@@ -146,7 +147,7 @@ BASE_TEMPLATE = """
         .container { max-width: 1300px; margin: 0 auto; padding: 25px; }
         .card { background: #1e1e1e; border-radius: 12px; padding: 25px; box-shadow: 0 6px 16px rgba(0,0,0,0.4); margin-bottom: 30px; border: 1px solid #2d2d2d; }
         
-        /* 表格專用樣式 (完美復刻黑綠配色輸入面板) */
+        /* 表格專用樣式 */
         .module-title { font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 15px; color: #fff; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background-color: #151515; }
         th { background-color: #1b7339; color: white; padding: 12px; font-size: 14px; font-weight: bold; text-align: center; }
@@ -164,7 +165,7 @@ BASE_TEMPLATE = """
         .btn-input { padding: 6px 12px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
         .b-h { background-color: #1b7339; } .b-out { background-color: #d93025; } .b-bb { background-color: #1a73e8; } .b-hbp { background-color: #00bcd4; } .b-sac { background-color: #f1a80a; }
         
-        /* 行事曆自訂樣式調整 */
+        /* 行事曆自訂樣式 */
         #calendar { background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff; border: 1px solid #333; }
         .fc-theme-standard td, .fc-theme-standard th { border: 1px solid #333 !important; }
         .fc-daygrid-day:hover { background-color: #252525; cursor: pointer; }
@@ -184,7 +185,8 @@ BASE_TEMPLATE = """
     </div>
 
     <div class="container">
-        {% block content %}{% endblock %}
+        <!-- 替換標記 -->
+        [[INJECT_CONTENT_HERE]]
     </div>
 
 </body>
@@ -192,15 +194,14 @@ BASE_TEMPLATE = """
 """
 
 # ==============================================================================
-# 5. 路由控制層 (Controllers)
+# 5. 路由控制層 (Controllers) - 已修復合併方式
 # ==============================================================================
 
 # --- [路由 1]：首頁賽程行事曆檢視與新增
 @app.route('/')
 def index():
     calendar_content = """
-    {% extends "base" %}
-    {% block content %}
+    <!-- 新增賽程功能面板 -->
     <div class="card">
         <h3>➕ 新增台啤盃常規賽程資訊</h3>
         <form method="POST" action="/add-match">
@@ -234,6 +235,7 @@ def index():
         </form>
     </div>
 
+    <!-- 彙整行事曆區塊 -->
     <div class="card">
         <h3 style="margin-top:0; color:#2ecc71;">🗓️ 台啤盃大會官方時程行事曆 (點擊任一場賽事直接切入單場即時紀錄房)</h3>
         <p style="color:#aaa; font-size:14px; margin-bottom:20px;">💡 指引：下方行事曆會同步彙整所有排定的對戰。直接點選行事曆內的比賽區塊，即可進入動態點擊面板！</p>
@@ -261,9 +263,10 @@ def index():
             calendar.render();
         });
     </script>
-    {% endblock %}
     """
-    return render_template_string(BASE_TEMPLATE + calendar_content, active_tab='calendar', teams=TEAMS, matches=matches_db)
+    # 將內容安全注入 BASE_TEMPLATE 中
+    full_html = BASE_TEMPLATE.replace('[[INJECT_CONTENT_HERE]]', calendar_content)
+    return render_template_string(full_html, active_tab='calendar', teams=TEAMS, matches=matches_db)
 
 
 # --- [動作路由]：接收表單資料，動態新增賽程
@@ -300,8 +303,6 @@ def add_match():
 def cumulative():
     c_batters, c_pitchers = get_cumulative_stats()
     cumulative_content = """
-    {% extends "base" %}
-    {% block content %}
     <div class="card">
         <div class="module-title">🏆 盃賽生涯大會累積榜 - 打者數據 (Batting Module)</div>
         <p style="color:#aaa; font-size:13px; text-align:center;">（數據流已完美整合：歷史底線數據 + 所有單場動態點擊數值的即時加總）</p>
@@ -345,9 +346,9 @@ def cumulative():
             </tbody>
         </table>
     </div>
-    {% endblock %}
     """
-    return render_template_string(BASE_TEMPLATE + cumulative_content, active_tab='cumulative', batters=c_batters, pitchers=c_pitchers)
+    full_html = BASE_TEMPLATE.replace('[[INJECT_CONTENT_HERE]]', cumulative_content)
+    return render_template_string(full_html, active_tab='cumulative', batters=c_batters, pitchers=c_pitchers)
 
 
 # --- [路由 3]：單場即時紀錄房 (由行事曆點入對應 ID)
@@ -364,7 +365,6 @@ def match_room(match_id):
     for p in ALL_PLAYERS:
         if p["team"] in [match["team_A"], match["team_B"]]:
             if p["type"] == "batter":
-                # 確保結構體存在
                 if p["id"] not in match["batters"]:
                     match["batters"][p["id"]] = {"H":0,"AB":0,"BB":0,"HBP":0,"SAC":0}
                 m_batters.append({**p, **match["batters"][p["id"]]})
@@ -374,8 +374,6 @@ def match_room(match_id):
                 m_pitchers.append({**p, **match["pitchers"][p["id"]]})
 
     match_template = """
-    {% extends "base" %}
-    {% block content %}
     <div class="card" style="background: linear-gradient(to right, #151515, #1b3827); border-left: 6px solid #2ecc71;">
         <span style="background:#d93025; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">單場 LIVE 紀錄房</span>
         <h2 style="margin: 10px 0 5px 0;">🏟️ 戰場：{{ match.stadium }} ({{ match.date }} {{ match.time }})</h2>
@@ -387,6 +385,7 @@ def match_room(match_id):
         <a href="/" style="display:inline-block; margin-top:20px; color:#aaa; text-decoration:none;">⬅️ 回到排定行事曆</a>
     </div>
 
+    <!-- 單場打者點擊輸入面板 -->
     <div class="card">
         <div class="module-title">🏏 【本場專屬】打者即時輸入面板 (Batting Box Score)</div>
         <table>
@@ -417,6 +416,7 @@ def match_room(match_id):
         </table>
     </div>
 
+    <!-- 單場投手點擊輸入面板 -->
     <div class="card">
         <div class="module-title">⚾ 【本場專屬】投手即時輸入面板 (Pitching Box Score)</div>
         <table>
@@ -505,9 +505,9 @@ def match_room(match_id):
             Object.keys(pitchers).forEach(id => runCalcPitcher(id));
         };
     </script>
-    {% endblock %}
     """
-    return render_template_string(BASE_TEMPLATE + match_template, active_tab='calendar', match=match, batters=m_batters, pitchers=m_pitchers)
+    full_html = BASE_TEMPLATE.replace('[[INJECT_CONTENT_HERE]]', match_template)
+    return render_template_string(full_html, active_tab='calendar', match=match, batters=m_batters, pitchers=m_pitchers)
 
 
 # --- [API 路由]：非同步處理前端點擊事件並同步回後端記憶體數據庫
